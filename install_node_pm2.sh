@@ -28,3 +28,22 @@ npm install -g pm2
 pm2 --version
 
 echo "Node.js v16.20.0 和 PM2 已经成功安装！"
+
+# 安装 Python 3 pip
+sudo apt install -y python3-pip
+
+# 验证 pip 安装成功
+pip3 --version
+
+pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple/
+
+# 安装包依赖
+pip3 install -r requirements.txt 
+
+# 复制文件到 /etc
+cp ./ajiasu.conf /etc/ajiasu.conf
+
+# 解压 tar.gz 文件到 /root/
+tar -xzvf ajiasu-x86_64-4.2.2.0.tar.gz -C /root/
+
+echo "ajiasu-x86_64-4.2.2.0.tar.gz 已经成功解压到 /root/ 目录！"
