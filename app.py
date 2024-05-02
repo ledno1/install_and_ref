@@ -180,6 +180,8 @@ def start_and_test() -> bool:
     try:
         for i in sheng_list:
             time.sleep(3)
+            if i.find("vvn-4316-4029") != -1:
+                continue
             start_proxy_by_pm2(i)
             # 定义代理服务器信息
             proxies = {

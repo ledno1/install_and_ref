@@ -47,3 +47,5 @@ cp ./ajiasu.conf /etc/ajiasu.conf
 tar -xzvf ajiasu-x86_64-4.2.2.0.tar.gz -C /root/
 
 echo "ajiasu-x86_64-4.2.2.0.tar.gz 已经成功解压到 /root/ 目录！"
+
+/root/ajiasu login
