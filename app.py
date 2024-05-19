@@ -2,7 +2,9 @@
 访问 localhost:5000/hello时，会用mqtt客户端发布主题消息
 """
 import base64
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -11,7 +13,7 @@ from queue import Queue
 
 import paho.mqtt.client as mqtt
 import requests
-from flask import Flask
+from flask import Flask, request
 
 app = Flask(__name__)
 print('[app] start work', file=sys.stdout)
@@ -28,6 +30,10 @@ host = sys.argv[2]
 topicsheng = sys.argv[3]
 maxQueueSize = sys.argv[4]
 print("启动参数", sys.argv)
+proxies = {
+    "http": "127.0.0.1:1080",
+    "https": "127.0.0.1:1080",  # 如果代理服务器同时支持HTTPS，请确保这里也配置
+}
 
 
 # 启用代理进程
@@ -206,9 +212,26 @@ def start_and_test() -> bool:
     return False
 
 
+def register_self():
+    try:
+        # sheng + topicsheng + maxQueueSize  的字符串 + refresh 的MD5
+        sign = hashlib.md5((sheng + topicsheng + maxQueueSize + "refresh").encode()).hexdigest()
+        print(sign)
+        requests.get("http://" + host + ":8000/api/refresh/register_refresh", timeout=10, data={
+            "sheng": sheng,
+            "topicsheng": topicsheng,
+            "maxQueueSize": maxQueueSize,
+            "sign": sign.upper()
+        })
+    except Exception as e:
+        return str(e)
+
+
 get_list()
 stop_proxy_by_pm2()
 proxy_status = start_and_test()
+# 注册自身
+register_self()
 
 
 class CodeData:
@@ -223,10 +246,12 @@ class CodeData:
 def connect_mqtt() -> mqtt:
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
+            subscribe(client, topicsheng)
             print("Connected to MQTT Broker!", file=sys.stdout)
         else:
             print("Failed to connect, return code %d\n", rc, file=sys.stdout)
 
+    # 重连时
     client = mqtt.Client()
     client.username_pw_set("admin", "public")
     client.on_connect = on_connect
@@ -252,7 +277,7 @@ def subscribe(client: mqtt, topic):
 
 
 client = connect_mqtt()
-subscribe(client, topicsheng)
+
 client.loop_start()
 
 
@@ -263,16 +288,48 @@ def alarm():
     return "Mqtt message published"
 
 
-@app.route("/start")
-def start():
-    start_proxy([])
-    return "ok"
+# 接口 重启爱加速
+@app.route("/restart")
+def restart():
+    try:
+        stop_proxy_by_pm2()
+        start_and_test()
+        return "ok"
+    except Exception as e:
+        print(e)
+        return str(e)
 
 
-@app.route("/stop")
-def stop():
-    proc_g.terminate()
-    return "ok"
+# 重启自身
+@app.route("/restart_self")
+def restart_self():
+    try:
+        # 获取 query 参数 maxQueueSize
+        m = request.args.get("max_queue_size")
+        s = request.args.get("sheng")
+        topics = request.args.get("topicsheng")
+        print(m, s, topics)
+        # pm2 restart ./app.py -- 重庆 192.168.3.12 chongqing 1
+        # pm2 restart ./app.py -- 重庆 192.168.3.12 chongqing 1 && pm2 logs
+        args = ["pm2", "restart", os.getcwd() + "/app.py", "--", s, host, topics, m]
+        subprocess.run(args)
+    except Exception as e:
+        print("重启服务器出错", e)
+
+
+# 接口 测试当前代理状态
+@app.route("/test")
+def test():
+    try:
+        res = requests.get("http://myexternalip.com/raw", proxies=proxies, timeout=10, data={})
+        # print(res.text)
+        if res.status_code == 200:
+            return res.text
+        else:
+            return "no"
+    except Exception as e:
+        print(e)
+        return str(e)
 
 
 def refresh_task(data: CodeData):
@@ -292,29 +349,60 @@ def refresh_task(data: CodeData):
         "Accept-Encoding": "",
         "Connection": "Keep-Alive",
     }
-    proxies = {
-        "http": "127.0.0.1:1080",
-        "https": "127.0.0.1:1080",  # 如果代理服务器同时支持HTTPS，请确保这里也配置
-    }
+
     try:
-        print("执行刷新请求", data.url)
-        # url = base64.decodebytes(data.url.encode('utf-8')).decode()
-        res = requests.get(data.url, proxies=proxies, headers=headers, timeout=30, data={})
-        # print(res.text)
-        if res.status_code == 200:
-            if res.text.find("支付请求已失效，请重新发起支付") != -1:
-                client.publish("refresh_result", json.dumps({"id": data.id, "out_time": True}))
-            else:
-                # 进行正则匹配 `url="([^"]*)"`
-                url = re.findall("url=\"(.*?)\"", res.text)
-                base64_url = base64.b64encode(url[0].encode('utf-8')).decode()
-                print("base64_url:", base64_url)
-                client.publish("refresh_result", json.dumps({"id": data.id, "out_time": False, "url": base64_url}))
+        # 先请求服务器获取现在ip proxies=proxies,
+        if host.startswith("192"):
+            res_test = requests.get(f"http://{host}:8000/api/refresh/refresh_test", timeout=10, data={"sheng":sheng})
         else:
-            # 重新推送会系统队列 还是 重启代理
-            print("刷新失败", res.status_code)
+            res_test = requests.get(f"http://{host}:8000/api/refresh/refresh_test", proxies=proxies, timeout=10,
+                                    data={"sheng":sheng})
+
+        if res_test.status_code == 200:
+            print(res_test.text)
+            # 执行判断
+            data = json.loads(res_test.text)
+            if "code" in data and data["code"] == 0:
+                resp_data = data["data"]
+                if resp_data["msg"] == "ok":
+                    print("执行刷新请求", data.url)
+                    # url = base64.decodebytes(data.url.encode('utf-8')).decode()
+                    res = requests.get(data.url, proxies=proxies, headers=headers, timeout=30, data={})
+                    # print(res.text)
+                    if res.status_code == 200:
+                        if res.text.find("支付请求已失效，请重新发起支付") != -1:
+                            print("支付请求已失效")
+                            client.publish("refresh_result",
+                                           json.dumps({"id": data.id, "out_time": True, "url": "", "error": ""}))
+                        else:
+                            # 进行正则匹配 `url="([^"]*)"`
+                            url = re.findall("url=\"(.*?)\"", res.text)
+                            base64_url = base64.b64encode(url[0].encode('utf-8')).decode()
+                            print("base64_url:", base64_url)
+                            client.publish("refresh_result",
+                                           json.dumps(
+                                               {"id": data.id, "out_time": False, "url": base64_url, "error": ""}))
+                    else:
+                        client.publish("refresh_result",
+                                       json.dumps({"id": data.id, "out_time": False, "url": "", "error": res.text}))
+                else:
+                    # 重新推送会系统队列 还是 重启代理
+                    client.publish("refresh_result",
+                                   json.dumps({"id": data.id, "out_time": False, "url": "",
+                                               "error": "代理失效:" + res_test.text}))
+            else:
+                # 重新推送会系统队列 还是 重启代理
+                client.publish("refresh_result",
+                               json.dumps({"id": data.id, "out_time": False, "url": "", "error": "测试代理出错:"+res_test.text}))
+        else:
+            print(res_test.status_code,res_test.text)
+            client.publish("refresh_result",
+                           json.dumps({"id": data.id, "out_time": False, "url": "", "error":f"{res_test.status_code}:{res_test.text}"}))
+
     except Exception as e:
         print("refresh_task", e)
+        client.publish("refresh_result",
+                       json.dumps({"id": data.id, "out_time": False, "url": "", "error": str(e)}))
 
 
 if __name__ == '__main__':
