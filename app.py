@@ -373,7 +373,7 @@ def refresh_task(data: CodeData):
                         if res.text.find("支付请求已失效，请重新发起支付") != -1:
                             print("支付请求已失效")
                             client.publish("refresh_result",
-                                           json.dumps({"id": data.id, "out_time": True, "url": "", "error": ""}))
+                                           json.dumps({"id": data.id, "out_time": True, "url": "", "error": "","ip":resp_data["ip"]}))
                         else:
                             # 进行正则匹配 `url="([^"]*)"`
                             url = re.findall("url=\"(.*?)\"", res.text)
@@ -381,35 +381,35 @@ def refresh_task(data: CodeData):
                             print("base64_url:", base64_url)
                             client.publish("refresh_result",
                                            json.dumps(
-                                               {"id": data.id, "out_time": False, "url": base64_url, "error": ""}))
+                                               {"id": data.id, "out_time": False, "url": base64_url, "error": "","ip":resp_data["ip"]}))
                     else:
                         client.publish("refresh_result",
-                                       json.dumps({"id": data.id, "out_time": False, "url": "", "error": res.text}))
+                                       json.dumps({"id": data.id, "out_time": False, "url": "", "error": res.text,"ip":resp_data["ip"]}))
                 elif resp_data["msg"] == "no":
                     # 重新推送会系统队列 还是 重启代理
                     client.publish("refresh_result",
                                    json.dumps({"id": data.id, "out_time": False, "url": "",
-                                               "error": "代理失效:" + res_test.text}))
+                                               "error": "代理失效:" + res_test.text,"ip":resp_data["ip"]}))
                     stop_proxy_by_pm2()
                     start_and_test()
                 else:
                     # 重新推送会系统队列 还是 重启代理
                     client.publish("refresh_result",
                                    json.dumps({"id": data.id, "out_time": False, "url": "",
-                                               "error": "代理失效:" + res_test.text}))
+                                               "error": "代理失效:" + res_test.text,"ip":resp_data["ip"]}))
             else:
                 # 重新推送会系统队列 还是 重启代理
                 client.publish("refresh_result",
-                               json.dumps({"id": data.id, "out_time": False, "url": "", "error": "测试代理出错:"+res_test.text}))
+                               json.dumps({"id": data.id, "out_time": False, "url": "", "error": "测试代理出错:"+res_test.text,"ip":""}))
         else:
             print(res_test.status_code,res_test.text)
             client.publish("refresh_result",
-                           json.dumps({"id": data.id, "out_time": False, "url": "", "error":f"{res_test.status_code}:{res_test.text}"}))
+                           json.dumps({"id": data.id, "out_time": False, "url": "", "error":f"{res_test.status_code}:{res_test.text}","ip":""}))
 
     except Exception as e:
         print("refresh_task", e)
         client.publish("refresh_result",
-                       json.dumps({"id": data.id, "out_time": False, "url": "", "error": str(e)}))
+                       json.dumps({"id": data.id, "out_time": False, "url": "", "error": str(e),"ip":""}))
 
 
 if __name__ == '__main__':
