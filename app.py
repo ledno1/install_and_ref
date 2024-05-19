@@ -361,9 +361,9 @@ def refresh_task(data: CodeData):
         if res_test.status_code == 200:
             print(res_test.text)
             # 执行判断
-            data = json.loads(res_test.text)
-            if "code" in data and data["code"] == 0:
-                resp_data = data["data"]
+            res_data = json.loads(res_test.text)
+            if "code" in res_data and res_data["code"] == 0:
+                resp_data = res_data["data"]
                 if resp_data["msg"] == "ok":
                     print("执行刷新请求", data.url)
                     # url = base64.decodebytes(data.url.encode('utf-8')).decode()
