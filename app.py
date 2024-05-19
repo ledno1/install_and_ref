@@ -385,6 +385,13 @@ def refresh_task(data: CodeData):
                     else:
                         client.publish("refresh_result",
                                        json.dumps({"id": data.id, "out_time": False, "url": "", "error": res.text}))
+                elif resp_data["msg"] == "no":
+                    # 重新推送会系统队列 还是 重启代理
+                    client.publish("refresh_result",
+                                   json.dumps({"id": data.id, "out_time": False, "url": "",
+                                               "error": "代理失效:" + res_test.text}))
+                    stop_proxy_by_pm2()
+                    start_and_test()
                 else:
                     # 重新推送会系统队列 还是 重启代理
                     client.publish("refresh_result",
